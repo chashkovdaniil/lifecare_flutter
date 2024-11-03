@@ -1,11 +1,12 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:lifecare/bluetooth_devices_list_widget.dart';
 import 'package:lifecare/javascript_flutter_message.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import 'bluetooth_manager.dart';
+
+/// https://clck.ru/3EP6pm - link to code on GitHub
 void main() {
   runApp(const MyApp());
 }
@@ -44,19 +45,90 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   late final WebViewController controller;
+  late final BluetoothManager bluetoothManager;
 
   @override
   void initState() {
     super.initState();
     initController();
+    bluetoothManager = BluetoothManager(
+      onScannedDevices: (devices) {
+        final msg = FlutterJavascriptMessage(
+          'onDevicesScanned',
+          {
+            "devices": devices
+                .map(
+                  (e) => {
+                    "id": e.remoteId.str,
+                    "name": e.platformName,
+                  },
+                )
+                .toList(),
+          },
+        );
+
+        controller.runJavaScript(msg.toString());
+      },
+      onConnected: (device) {
+        final msg = FlutterJavascriptMessage(
+          'onConnected',
+          {
+            "id": device.remoteId.str,
+          },
+        );
+
+        controller.runJavaScript(msg.toString());
+      },
+      onCharacteristicRead: (characteristic, value) {
+        final msg = FlutterJavascriptMessage(
+          'characteristicValueChanged',
+          {
+            "id": characteristic.remoteId.str,
+            "value": value,
+          },
+        );
+
+        controller.runJavaScript(msg.toString());
+      },
+      onError: (error) {
+        final msg = FlutterJavascriptMessage(
+          'onConnectionError',
+          {
+            "error": error,
+          },
+        );
+
+        controller.runJavaScript(msg.toString());
+        if (!mounted) {
+          return;
+        }
+
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Ошибка'),
+            content: Text('$error'),
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    bluetoothManager.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
-        child: WebViewWidget(
-          controller: controller,
+        child: BluetoothManagerInheritedWidget(
+          bluetoothManager: bluetoothManager,
+          child: WebViewWidget(
+            controller: controller,
+          ),
         ),
       ),
     );
@@ -75,140 +147,48 @@ class _MyHomePageState extends State<MyHomePage> {
         final message = JavascriptFlutterMessage.fromJson(
           jsonDecode(javascriptMessage.message),
         );
+
+        print('JS MSG - ${javascriptMessage.message}');
         print('MSG ' + message.method.toString());
-        if (message.method == 'startScan') {
-          startScan();
-        } else if (message.method.contains('connect')) {
-          connect(message.method);
+
+        switch (message.method) {
+          case 'startScan':
+            bluetoothManager.startScan();
+            break;
+          case 'connectToDevice':
+            bluetoothManager.connect(
+              (message.arguments as Map<String, Object?>)['id'] as String,
+            );
+            break;
+          case 'writeCharacteristic':
+            final args = (message.arguments as Map<String, Object?>);
+            bluetoothManager.writeCharacteristic(
+              serviceId: args['service'] as String,
+              characteristicId: args['characteristicId'] as String,
+              message: args['message'] as String,
+            );
+            break;
+          case 'readCharacteristic':
+            final args = (message.arguments as Map<String, Object?>);
+            bluetoothManager.readCharacteristic(
+              serviceId: args['service'] as String,
+              characteristicId: args['characteristicId'] as String,
+            );
+            break;
+          case 'subscribeToCharacteristic':
+            final args = (message.arguments as Map<String, Object?>);
+            bluetoothManager.subscribeToCharacteristic(
+              serviceId: args['service'] as String,
+              characteristicId: args['characteristicId'] as String,
+            );
+            break;
+          case 'disconnect':
+            bluetoothManager.disconnect();
+            break;
         }
       },
     );
+
     await controller.loadRequest(Uri.parse('https://flutter.careapp.ru/'));
-  }
-
-  Future<void> startScan() async {
-    if (!mounted) {
-      return;
-    }
-    showDialog(
-      context: context,
-      builder: (context) {
-        return const Center(
-          child: CircularProgressIndicator(),
-        );
-      },
-    );
-
-    await FlutterBluePlus.startScan(timeout: const Duration(seconds: 5));
-
-    if (!mounted) {
-      return;
-    }
-
-    Navigator.of(context).pop();
-
-    // final scanResults = FlutterBluePlus.lastScanResults;
-    // FlutterBluePlus.adapterStateNow;
-    // final map = scanResults.map((e) {
-    //   return {
-    //     'name': e.device.platformName,
-    //     'advName': e.device.advName,
-    //     'services': e.device.servicesList.map((s) => s.remoteId.str).toList(),
-    //     'id': e.device.remoteId.str,
-    //   };
-    // }).toList();
-    // final jsonString = jsonEncode(map);
-
-    await showDialog(
-      context: context,
-      builder: (context) {
-        return StreamBuilder(
-            initialData: FlutterBluePlus.lastScanResults,
-            stream: FlutterBluePlus.onScanResults,
-            builder: (context, snapshot) {
-              final devices = snapshot.requireData
-                  .where(
-                    (result) => result.device.platformName.isNotEmpty,
-                    // (result) => result.device.platformName.contains('LTab-'),
-                  )
-                  .map((result) => result.device)
-                  .toList();
-              final arguments = {
-                "devices": devices
-                    .map(
-                      (e) => {
-                        "uuid": e.remoteId.str,
-                        "name": e.platformName,
-                      },
-                    )
-                    .toList(),
-              };
-              final answer = {
-                "method": "onDevicesScanned",
-                "arguments": arguments,
-              };
-              final jsCode =
-                  'window.onMessageFromFlutter(\'${jsonEncode(answer)}\')';
-              controller.runJavaScript(jsCode);
-              print('TEST ${jsCode}');
-
-              if (devices.isEmpty) {
-                return AlertDialog(
-                  content: Text('No devices'),
-                  actions: [
-                    TextButton(
-                      onPressed: () {
-                        Navigator.of(context).pop();
-                      },
-                      child: Text('OK'),
-                    ),
-                  ],
-                );
-              }
-              return BluetoothDevicesWidget(devices: devices);
-            });
-      },
-    );
-    FlutterBluePlus.stopScan();
-  }
-
-  Future<void> connect(String message) async {
-    try {
-      final deviceId = message.split('+').last;
-      final scanResults = FlutterBluePlus.lastScanResults;
-      final device = scanResults
-          .firstWhere(
-            (element) => element.device.remoteId.str == deviceId,
-          )
-          .device;
-      await device.connect();
-      controller.runJavaScript('alert(\''
-          'onConnected'
-          '\');');
-    } catch (error) {
-      controller.runJavaScript('alert(\''
-          'onError($error)'
-          '\');');
-    }
-  }
-
-  Future<void> write(String message) async {
-    try {
-      final deviceId = message.split('+').last;
-      final scanResults = FlutterBluePlus.lastScanResults;
-      final device = scanResults
-          .firstWhere(
-            (element) => element.device.remoteId.str == deviceId,
-          )
-          .device;
-      await device.connect();
-      controller.runJavaScript('alert(\''
-          'onConnected'
-          '\');');
-    } catch (error) {
-      controller.runJavaScript('alert(\''
-          'onError($error)'
-          '\');');
-    }
   }
 }
