@@ -15,3 +15,7 @@ For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
 # lifecare_flutter
+
+Если запустить через flutter run --debug, то появится дебажное меню
+
+Данный код не является конечным результатом и самым лучшим. В нем также есть что улучшить.

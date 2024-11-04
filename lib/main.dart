@@ -1,9 +1,13 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:lifecare/bluetooth_devices_list_widget.dart';
 import 'package:lifecare/javascript_flutter_message.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import 'bluetooth_device_storage.dart';
 import 'bluetooth_manager.dart';
 
 /// https://clck.ru/3EP6pm - link to code on GitHub
@@ -52,6 +56,7 @@ class _MyHomePageState extends State<MyHomePage> {
     super.initState();
     initController();
     bluetoothManager = BluetoothManager(
+      bluetoothDeviceStorage: BluetoothDeviceStorage(),
       onScannedDevices: (devices) {
         final msg = FlutterJavascriptMessage(
           'onDevicesScanned',
@@ -94,7 +99,7 @@ class _MyHomePageState extends State<MyHomePage> {
         final msg = FlutterJavascriptMessage(
           'onConnectionError',
           {
-            "error": error,
+            "message": error.toString(),
           },
         );
 
@@ -112,6 +117,7 @@ class _MyHomePageState extends State<MyHomePage> {
         );
       },
     );
+    bluetoothManager.init();
   }
 
   @override
@@ -124,21 +130,110 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
-        child: BluetoothManagerInheritedWidget(
-          bluetoothManager: bluetoothManager,
-          child: WebViewWidget(
-            controller: controller,
-          ),
+        child: WebViewWidget(
+          controller: controller,
         ),
       ),
+      floatingActionButton: (!kDebugMode)
+          ? null
+
+          /// Это мы используем чисто для дебага
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextButton(
+                  child: Text('S'),
+                  onPressed: () async {
+                    bluetoothManager.startScan();
+                    await showDialog(
+                      context: context,
+                      builder: (context) {
+                        return StreamBuilder(
+                          initialData: FlutterBluePlus.lastScanResults,
+                          stream: FlutterBluePlus.onScanResults,
+                          builder: (context, snapshot) {
+                            return BluetoothDevicesWidget(
+                              bluetoothManager: bluetoothManager,
+                              devices: snapshot.requireData
+                                  .where(
+                                    (s) =>
+                                        s.device.platformName.contains('LTab'),
+                                  )
+                                  .map((s) => s.device)
+                                  .toList(),
+                            );
+                          },
+                        );
+                      },
+                    );
+                    bluetoothManager.stopScan();
+                  },
+                ),
+                TextButton(
+                  child: Text('C'),
+                  onPressed: () {
+                    bluetoothManager.connect('94:B9:7E:E3:93:0A');
+                  },
+                ),
+                TextButton(
+                  child: Text('D'),
+                  onPressed: () {
+                    bluetoothManager.disconnect('94:B9:7E:E3:93:0A');
+                  },
+                ),
+                TextButton(
+                  child: Text('W'),
+                  onPressed: () async {
+                    bluetoothManager.writeCharacteristic(
+                      characteristicId: '6e400002-b5a3-f393-e0a9-e50e24dcca9e',
+                      serviceId: '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
+                      message: 'select:0',
+                    );
+                    await Future.delayed(const Duration(seconds: 1));
+                    bluetoothManager.writeCharacteristic(
+                      characteristicId: '6e400002-b5a3-f393-e0a9-e50e24dcca9e',
+                      serviceId: '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
+                      message: 'select:2',
+                    );
+                    await Future.delayed(const Duration(seconds: 1));
+                    bluetoothManager.writeCharacteristic(
+                      characteristicId: '6e400002-b5a3-f393-e0a9-e50e24dcca9e',
+                      serviceId: '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
+                      message: 'select:1',
+                    );
+                    await Future.delayed(const Duration(seconds: 1));
+                    bluetoothManager.writeCharacteristic(
+                      characteristicId: '6e400002-b5a3-f393-e0a9-e50e24dcca9e',
+                      serviceId: '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
+                      message: 'select:3',
+                    );
+                    bluetoothManager.subscribeToCharacteristic(
+                      serviceId: '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
+                      characteristicId: '6e400003-b5a3-f393-e0a9-e50e24dcca9e',
+                    );
+                  },
+                ),
+                TextButton(
+                  child: Text('R'),
+                  onPressed: () {
+                    bluetoothManager.readCharacteristic(
+                      characteristicId: '6e400003-b5a3-f393-e0a9-e50e24dcca9e',
+                      serviceId: '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
+                    );
+                    bluetoothManager.readCharacteristic(
+                      characteristicId: '6e400002-b5a3-f393-e0a9-e50e24dcca9e',
+                      serviceId: '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
+                    );
+                  },
+                ),
+              ],
+            ),
     );
   }
 
   /// Намеренно оставляю все в виджете, чтобы потом сами решили куда и что выносить
   Future<void> initController() async {
-    controller = WebViewController(onPermissionRequest: (request) {
-      print('PERMISSIONS — ${request.types}');
-    });
+    controller = WebViewController();
     await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
     await controller.setBackgroundColor(const Color(0x00000000));
     await controller.addJavaScriptChannel(
@@ -147,9 +242,6 @@ class _MyHomePageState extends State<MyHomePage> {
         final message = JavascriptFlutterMessage.fromJson(
           jsonDecode(javascriptMessage.message),
         );
-
-        print('JS MSG - ${javascriptMessage.message}');
-        print('MSG ' + message.method.toString());
 
         switch (message.method) {
           case 'startScan':

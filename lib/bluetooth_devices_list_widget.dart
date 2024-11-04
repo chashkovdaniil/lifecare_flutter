@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:lifecare/bluetooth_manager.dart';
 
-class BluetoothDevicesWidget extends StatefulWidget {
+/// Виджет, который выводит список блютуз устройств.
+/// Требуется для дебага, открывается по тапу на кнпоку "S" в режиме дебага
+class BluetoothDevicesWidget extends StatelessWidget {
+  final BluetoothManager bluetoothManager;
   final List<BluetoothDevice> devices;
 
-  const BluetoothDevicesWidget({super.key, required this.devices});
+  const BluetoothDevicesWidget({
+    super.key,
+    required this.devices,
+    required this.bluetoothManager,
+  });
 
-  @override
-  State<BluetoothDevicesWidget> createState() => _BluetoothDevicesWidgetState();
-}
-
-class _BluetoothDevicesWidgetState extends State<BluetoothDevicesWidget> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
@@ -19,7 +22,8 @@ class _BluetoothDevicesWidgetState extends State<BluetoothDevicesWidget> {
         children: [
           Expanded(
             child: _ListDevice(
-              devices: widget.devices,
+              devices: devices,
+              bluetoothManager: bluetoothManager,
             ),
           ),
           TextButton(
@@ -35,9 +39,11 @@ class _BluetoothDevicesWidgetState extends State<BluetoothDevicesWidget> {
 }
 
 class _ListDevice extends StatefulWidget {
+  final BluetoothManager bluetoothManager;
   final List<BluetoothDevice> devices;
 
-  const _ListDevice({super.key, required this.devices});
+  const _ListDevice(
+      {super.key, required this.devices, required this.bluetoothManager});
 
   @override
   State<_ListDevice> createState() => _ListDeviceState();
@@ -54,6 +60,7 @@ class _ListDeviceState extends State<_ListDevice> {
       itemCount: widget.devices.length,
       itemBuilder: (context, index) {
         final device = widget.devices[index];
+
         return ListTile(
           title: Text(device.platformName),
           subtitle: Text(
@@ -61,9 +68,9 @@ class _ListDeviceState extends State<_ListDevice> {
           ),
           isThreeLine: device.isConnected,
           trailing: _selectedDevice == device.remoteId.str
-              ? Row(
+              ? const Row(
                   mainAxisSize: MainAxisSize.min,
-                  children: const [
+                  children: [
                     CircularProgressIndicator(),
                   ],
                 )
@@ -75,7 +82,7 @@ class _ListDeviceState extends State<_ListDevice> {
               _selectedDevice = device.remoteId.str;
               setState(() {});
 
-              await device.connect();
+              await widget.bluetoothManager.connect(device.remoteId.str);
               _isFreezed = false;
               _selectedDevice = null;
               setState(() {});

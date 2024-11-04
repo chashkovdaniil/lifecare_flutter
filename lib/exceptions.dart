@@ -19,6 +19,16 @@ final class BluetoothUnexpectedException extends BluetoothException {
   }
 }
 
+final class BluetoothNotFoundDeviceException extends BluetoothException {
+  final String id;
+  const BluetoothNotFoundDeviceException(this.id);
+
+  @override
+  String toString() {
+    return 'Device with id: $id not found.';
+  }
+}
+
 final class BluetoothNotFoundDeviceIdException extends BluetoothException {
   const BluetoothNotFoundDeviceIdException();
 
@@ -30,10 +40,11 @@ final class BluetoothNotFoundDeviceIdException extends BluetoothException {
 
 final class BluetoothNotFoundCharacteristicException
     extends BluetoothException {
-  const BluetoothNotFoundCharacteristicException();
+  final String id;
+  const BluetoothNotFoundCharacteristicException(this.id);
 
   @override
   String toString() {
-    return 'Characteristic not found';
+    return 'Characteristic - $id not found';
   }
 }
